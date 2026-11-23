@@ -28,8 +28,9 @@ To stop it, press `Ctrl + C` in the terminal. Next time, you only need to activa
 - **Log in.** Use the same email and password next time.
 - **Pick a date.** The date starts on today. Choose any other day with the date picker, or click **Today** to jump back.
 - **Write an entry.** Type in the box and click **Add entry** (or press `Ctrl + Enter`).
-- **See your entries.** Every entry for the selected date shows as a card with the time you wrote it.
-- **Delete an entry.** Click the **×** in the corner of a card.
+- **See your entries.** Every entry for the selected date shows as a card with the time you wrote it. Long entries show a short preview.
+- **Open an entry.** Click a card (or select it with `Tab` and press `Enter`) to expand it into a larger view with the full text. Close it with **×**, `Esc`, or by clicking outside it.
+- **Delete an entry.** Click the **×** in the corner of a card, or **Delete entry** in the expanded view.
 - **Log out.** Click **Log out** in the top right.
 
 ## Your data

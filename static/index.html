@@ -9,11 +9,19 @@
 <link rel="stylesheet" href="/static/style.css">
 <style>
   .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; color: var(--muted); font-size: .9rem; }
-  .cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); align-items: start; }
   .card {
     position: relative; background: var(--card); border: 1px solid var(--border);
     border-radius: 18px; padding: 18px 18px 14px; border-top: 4px solid var(--c);
-    animation: pop .25s ease-out; white-space: pre-wrap; overflow-wrap: anywhere;
+    animation: pop .25s ease-out; cursor: pointer;
+    transition: transform .15s, background-color .15s, box-shadow .15s;
+  }
+  .card:hover { transform: translateY(-3px); background-color: rgba(255,255,255,0.15); box-shadow: 0 12px 30px rgba(0,0,0,.25); }
+  .card .body { all: unset; display: block; cursor: pointer; padding-right: 18px; }
+  .card .body:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 6px; }
+  .preview {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; line-clamp: 6;
+    overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
   }
   .card time { display: block; font-size: .75rem; color: var(--muted); margin-top: 12px; }
   .card .del {
@@ -23,7 +31,36 @@
   .card .del:hover { color: #fff; transform: none; }
   .empty { color: var(--muted); text-align: center; padding: 32px; border: 1px dashed var(--border); border-radius: 18px; }
   @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } }
-  @media (prefers-reduced-motion: reduce) { .card { animation: none; } }
+
+  /* Expanded entry */
+  #viewer {
+    padding: 0; border: 0; background: none; color: var(--text); overflow: visible;
+    width: min(680px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 64px);
+  }
+  #viewer::backdrop { background: rgba(15, 10, 40, .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  body:has(#viewer[open]) { overflow: hidden; }
+  .viewer-panel {
+    display: flex; flex-direction: column; max-height: calc(100vh - 64px);
+    background: rgba(52, 30, 112, .94); border: 1px solid var(--border); border-top: 4px solid var(--c);
+    border-radius: 22px; padding: 24px; box-shadow: 0 30px 80px rgba(0,0,0,.45);
+  }
+  .viewer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .viewer-head h3 { font-family: Fraunces, Georgia, serif; font-size: 1.4rem; margin: 0; }
+  .viewer-head p { color: var(--muted); font-size: .85rem; margin: 4px 0 0; }
+  .viewer-close { background: none; color: var(--muted); font-size: 1.6rem; line-height: 1; padding: 0 6px; }
+  .viewer-close:hover { color: #fff; transform: none; }
+  .viewer-text { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; scrollbar-color: rgba(255,255,255,.3) transparent; font-size: 1.05rem; line-height: 1.65; margin: 18px 0 20px; }
+  .viewer-actions { display: flex; justify-content: flex-end; }
+  .danger { background: none; color: var(--error); border: 1px solid rgba(254,202,202,.4); }
+  .danger:hover { background: rgba(254,202,202,.1); }
+
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
+    animation-duration: .38s; animation-timing-function: cubic-bezier(.2, .9, .25, 1);
+  }
+  /* Fade the old snapshot out quickly so the scaled-up text doesn't linger while the box grows. */
+  ::view-transition-old(entry) { animation-duration: .12s; }
+  ::view-transition-new(entry) { animation-duration: .24s; }
+  @media (prefers-reduced-motion: reduce) { .card { animation: none; transition: none; } }
 </style>
 </head>
 <body>
@@ -33,7 +70,7 @@
     <button type="button" class="link" id="logout">Log out</button>
   </div>
   <h1>Daily Journal</h1>
-  <p class="sub">Pick a day, write a thought.</p>
+  <p class="sub">Pick a day, write a thought. Click an entry to open it.</p>
 
   <form class="panel" id="form">
     <div class="row">
@@ -54,15 +91,35 @@
   <div class="cards" id="cards" aria-live="polite"></div>
 </main>
 
+<dialog id="viewer" aria-labelledby="vDate">
+  <div class="viewer-panel">
+    <div class="viewer-head">
+      <div>
+        <h3 id="vDate"></h3>
+        <p id="vTime"></p>
+      </div>
+      <button type="button" class="viewer-close" id="vClose" aria-label="Close">×</button>
+    </div>
+    <p class="viewer-text" id="vText"></p>
+    <div class="viewer-actions">
+      <button type="button" class="danger" id="vDelete">Delete entry</button>
+    </div>
+  </div>
+</dialog>
+
 <script>
   const COLORS = ['#f472b6', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa', '#fb7185'];
   const $ = id => document.getElementById(id);
+  const viewer = $('viewer');
+  let openCard = null, openEntryData = null;
 
   // Local date, not toISOString(), which is UTC and can give yesterday's date.
   const todayStr = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
+  const longDate = date => new Date(date + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const shortTime = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   async function api(path, options = {}) {
     const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
@@ -76,10 +133,61 @@
 
   const showError = err => { $('error').textContent = err ? err.message || String(err) : ''; };
 
+  async function deleteEntry(id) {
+    try { await api(`/api/entries/${id}`, { method: 'DELETE' }); showError(null); render(); }
+    catch (err) { showError(err); }
+  }
+
+  // Animates the DOM change with the View Transitions API where supported; otherwise applies it instantly.
+  function animate(update) {
+    if (!document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      update();
+      return Promise.resolve();
+    }
+    return document.startViewTransition(update).finished;
+  }
+
+  // The shared view-transition-name moves from the card to the dialog, so the card morphs into it.
+  function openEntry(card, entry, color) {
+    if (viewer.open) return;
+    openCard = card;
+    openEntryData = entry;
+    viewer.style.setProperty('--c', color);
+    $('vDate').textContent = longDate(entry.date);
+    $('vTime').textContent = `Written at ${shortTime(entry.created_at)}`;
+    $('vText').textContent = entry.text;
+    card.style.viewTransitionName = 'entry';
+    animate(() => {
+      card.style.viewTransitionName = '';
+      viewer.style.viewTransitionName = 'entry';
+      viewer.showModal();
+      $('vText').scrollTop = 0;
+    });
+  }
+
+  function closeViewer() {
+    if (!viewer.open) return;
+    const card = openCard && openCard.isConnected ? openCard : null;
+    animate(() => {
+      viewer.close();
+      viewer.style.viewTransitionName = '';
+      if (card) card.style.viewTransitionName = 'entry';
+    }).then(() => {
+      if (!card) return;
+      card.style.viewTransitionName = '';
+      card.querySelector('.body').focus({ preventScroll: true });
+    });
+  }
+
+  viewer.addEventListener('cancel', ev => { ev.preventDefault(); closeViewer(); }); // Esc
+  viewer.addEventListener('close', () => { viewer.style.viewTransitionName = ''; });  // closed by any route
+  viewer.onclick = ev => { if (ev.target === viewer) closeViewer(); };              // click on the backdrop
+  $('vClose').onclick = closeViewer;
+  $('vDelete').onclick = () => { viewer.close(); deleteEntry(openEntryData.id); };
+
   async function render() {
     const date = $('date').value;
-    const pretty = new Date(date + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-    $('heading').textContent = date === todayStr() ? `Today · ${pretty}` : pretty;
+    $('heading').textContent = date === todayStr() ? `Today · ${longDate(date)}` : longDate(date);
 
     let list;
     try { list = await api(`/api/entries?date=${encodeURIComponent(date)}`); }
@@ -96,22 +204,35 @@
       return;
     }
     list.forEach((e, i) => {
+      const color = COLORS[i % COLORS.length];
       const card = document.createElement('article');
       card.className = 'card';
-      card.style.setProperty('--c', COLORS[i % COLORS.length]);
-      card.textContent = e.text; // textContent, never innerHTML: user text is not markup
+      card.style.setProperty('--c', color);
+
+      const body = document.createElement('button'); // keyboard access; its click bubbles to the card
+      body.type = 'button';
+      body.className = 'body';
+      body.setAttribute('aria-haspopup', 'dialog');
+      const preview = document.createElement('span');
+      preview.className = 'preview';
+      preview.textContent = e.text; // textContent, never innerHTML: user text is not markup
+      body.append(preview);
+
       const time = document.createElement('time');
       time.dateTime = e.created_at;
-      time.textContent = new Date(e.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      time.textContent = shortTime(e.created_at);
+
       const del = document.createElement('button');
       del.className = 'del';
       del.textContent = '×';
       del.setAttribute('aria-label', 'Delete entry');
-      del.onclick = async () => {
-        try { await api(`/api/entries/${e.id}`, { method: 'DELETE' }); showError(null); render(); }
-        catch (err) { showError(err); }
+      del.onclick = () => deleteEntry(e.id);
+
+      card.onclick = ev => {
+        if (ev.target.closest('.del') || getSelection().toString()) return;
+        openEntry(card, e, color);
       };
-      card.append(time, del);
+      card.append(body, time, del);
       cards.append(card);
     });
   }
