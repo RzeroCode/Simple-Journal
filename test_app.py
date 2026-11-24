@@ -229,6 +229,7 @@ def test_security_headers(client):
     assert client.get("/static/style.css").headers["cache-control"] == "no-cache"
     # nosniff makes browsers refuse scripts/styles served with the wrong type
     assert client.get("/static/journal.js").headers["content-type"].startswith("text/javascript")
+    assert client.get("/static/theme.js").headers["content-type"].startswith("text/javascript")
     assert client.get("/static/style.css").headers["content-type"].startswith("text/css")
 
 

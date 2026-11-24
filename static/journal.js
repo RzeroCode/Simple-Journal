@@ -326,6 +326,15 @@ $('text').onkeydown = ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKe
 $('date').onchange = () => selectDate($('date').value || todayStr());
 $('today').onclick = () => selectDate(todayStr());
 $('q').oninput = render;
+// theme.js already applied the saved choice; this button flips it and remembers it on this device.
+const root = document.documentElement;
+$('theme').ariaPressed = String(root.dataset.theme === 'night');
+$('theme').onclick = () => {
+  const night = root.dataset.theme !== 'night';
+  if (night) root.dataset.theme = 'night'; else delete root.dataset.theme;
+  try { localStorage.setItem('theme', night ? 'night' : 'default'); } catch { /* not remembered, still switched */ }
+  $('theme').ariaPressed = String(night);
+};
 $('logout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.replace('/login'); };
 
 api('/api/me').then(me => { $('who').textContent = `Signed in as ${me.email}`; }).catch(() => {});

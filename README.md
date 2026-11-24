@@ -35,6 +35,7 @@ To stop it, press `Ctrl + C` in the terminal. Next time, you only need to activa
 - **Edit an entry.** Open it and click **Edit**. Change the text, mood or tags, then click **Save** (or press `Ctrl + Enter`). Click **Cancel** or press `Esc` to stop editing; you'll be asked before unsaved changes are thrown away.
 - **Delete an entry.** Click the **×** in the corner of a card, or **Delete entry** in the expanded view.
 - **Search.** Type in the search box to find entries from any day that contain that text (upper and lower case don't matter). Results show newest first, with their dates. To see every entry with a tag, click the tag on a card or type it with a `#` (for example `#work`). Clear the box, pick a date, or click **Today** to go back to the day view.
+- **Night mode.** Click **Night mode** at the top for a darker, calmer look for writing at night. Click it again to go back. The choice is remembered on this device.
 - **Log out.** Click **Log out** in the top right.
 
 ## Your data
