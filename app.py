@@ -1,24 +1,58 @@
 """Daily Journal backend: FastAPI + SQLite, email/password login, per-user entries."""
 import hashlib
+import mimetypes
 import os
 import secrets
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 from datetime import date as Date, datetime, timedelta, timezone
 from pathlib import Path
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+
+# Windows' registry can map .js to text/plain; with nosniff the browser would then refuse to run it.
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
 DB_PATH = os.environ.get("JOURNAL_DB", str(HERE / "journal.db"))
 SESSION_DAYS = 30
 ph = PasswordHasher()
+# Checked for unknown emails too, so response time doesn't reveal which accounts exist.
+DUMMY_HASH = ph.hash(secrets.token_urlsafe(16))
+
+MAX_FAILED_LOGINS = 5
+LOCKOUT_SECONDS = 15 * 60
+# shortcut: in-memory and per-process, so it resets on restart; move to the DB or Redis if run with several workers.
+failed_logins: dict[str, list[float]] = {}
+
+CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' https://fonts.googleapis.com",
+    "font-src https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+])
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -70,6 +104,35 @@ async def lifespan(_app):
 
 app = FastAPI(title="Daily Journal", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+# Blocks DNS-rebinding: a hostile domain pointed at 127.0.0.1 is rejected by its Host header.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    # Other apps on localhost count as "same-site", so SameSite cookies alone don't stop them posting here.
+    # Browsers always send Origin on cross-origin writes; reject any that isn't this site.
+    origin = request.headers.get("origin")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and origin and origin != f"{request.url.scheme}://{request.url.netloc}":
+        response = JSONResponse({"detail": "Cross-origin request blocked"}, status_code=403)
+    else:
+        response = await call_next(request)
+    response.headers.update(SECURITY_HEADERS)
+    if not request.url.path.startswith(("/docs", "/redoc")):  # the API docs page needs its own inline scripts
+        response.headers["Content-Security-Policy"] = CSP
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"  # keep journal text out of the browser cache
+    elif request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"  # revalidate so updated CSS/JS is picked up at once
+    return response
+
+
+def recent_failures(key: str) -> int:
+    cutoff = time.monotonic() - LOCKOUT_SECONDS
+    recent = [t for t in failed_logins.pop(key, []) if t > cutoff]
+    if recent:
+        failed_logins[key] = recent
+    return len(recent)
 
 
 def get_db():
@@ -156,14 +219,18 @@ def register(creds: Credentials, response: Response, db=Depends(get_db)):
 @app.post("/api/login")
 def login(creds: Credentials, response: Response, db=Depends(get_db)):
     email = creds.email.lower()
+    key = f"email:{email}"
+    if recent_failures(key) >= MAX_FAILED_LOGINS:
+        raise HTTPException(429, "Too many failed attempts. Try again in 15 minutes.")
     row = db.execute("SELECT id, password_hash FROM users WHERE email = ?", (email,)).fetchone()
     try:
+        ph.verify(row["password_hash"] if row else DUMMY_HASH, creds.password)
         if row is None:
             raise VerifyMismatchError
-        ph.verify(row["password_hash"], creds.password)
     except VerifyMismatchError:
-        # shortcut: no rate limiting on failed logins; add it before exposing this beyond localhost.
+        failed_logins.setdefault(key, []).append(time.monotonic())
         raise HTTPException(401, "Wrong email or password")
+    failed_logins.pop(key, None)
     start_session(db, response, row["id"])
     return {"email": email}
 

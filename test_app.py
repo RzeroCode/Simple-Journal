@@ -6,15 +6,19 @@ import app as journal
 PW = "correct horse"
 
 
+BASE = "http://127.0.0.1"  # must be an allowed host
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(journal, "DB_PATH", str(tmp_path / "test.db"))
-    with TestClient(journal.app) as c:
+    monkeypatch.setattr(journal, "failed_logins", {})
+    with TestClient(journal.app, base_url=BASE) as c:
         yield c
 
 
 def new_client():
-    return TestClient(journal.app)  # separate cookie jar = separate user
+    return TestClient(journal.app, base_url=BASE)  # separate cookie jar = separate user
 
 
 def test_pages_require_login(client):
@@ -84,6 +88,44 @@ def test_users_cannot_see_or_delete_each_others_entries(client):
     assert b.delete(f"/api/entries/{a_entry['id']}").status_code == 404
     assert b.patch(f"/api/entries/{a_entry['id']}", json={"text": "hacked"}).status_code == 404
     assert client.get("/api/entries?date=2026-11-23").json()[0]["text"] == "A's secret"
+
+
+def test_login_locks_after_repeated_failures(client):
+    client.post("/api/register", json={"email": "a@example.com", "password": PW})
+    for _ in range(journal.MAX_FAILED_LOGINS):
+        assert client.post("/api/login", json={"email": "a@example.com", "password": "wrong pass"}).status_code == 401
+    # Locked: even the right password is refused until the window passes.
+    assert client.post("/api/login", json={"email": "a@example.com", "password": PW}).status_code == 429
+    # Other accounts are unaffected.
+    client.post("/api/register", json={"email": "b@example.com", "password": PW})
+    assert client.post("/api/login", json={"email": "b@example.com", "password": PW}).status_code == 200
+
+
+def test_security_headers(client):
+    for path in ("/login", "/api/me", "/static/journal.js"):
+        h = client.get(path).headers
+        assert "script-src 'self'" in h["content-security-policy"]
+        assert "frame-ancestors 'none'" in h["content-security-policy"]
+        assert h["x-content-type-options"] == "nosniff"
+        assert h["x-frame-options"] == "DENY"
+    assert client.get("/api/me").headers["cache-control"] == "no-store"
+    assert client.get("/static/style.css").headers["cache-control"] == "no-cache"
+    # nosniff makes browsers refuse scripts/styles served with the wrong type
+    assert client.get("/static/journal.js").headers["content-type"].startswith("text/javascript")
+    assert client.get("/static/style.css").headers["content-type"].startswith("text/css")
+
+
+def test_cross_origin_writes_blocked(client):
+    evil = {"Origin": "http://localhost:3000"}
+    assert client.post("/api/register", json={"email": "a@example.com", "password": PW}, headers=evil).status_code == 403
+    same = {"Origin": BASE}
+    assert client.post("/api/register", json={"email": "a@example.com", "password": PW}, headers=same).status_code == 201
+    assert client.post("/api/logout", headers=evil).status_code == 403
+    assert client.get("/api/me").status_code == 200  # still logged in
+
+
+def test_unknown_host_rejected(client):
+    assert client.get("/login", headers={"Host": "evil.example"}).status_code == 400
 
 
 def test_passwords_and_tokens_not_stored_in_plain_text(client):

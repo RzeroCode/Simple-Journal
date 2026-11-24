@@ -40,12 +40,22 @@ To stop it, press `Ctrl + C` in the terminal. Next time, you only need to activa
 - Each account sees only its own entries.
 - Passwords are never stored. Only a secure scrambled version (an argon2 hash) is kept.
 - You stay logged in for 30 days unless you log out.
-- The app is set up to run only on your own computer. It is not ready to be put on the internet yet: it has no protection against password guessing and does not use HTTPS.
+- After 5 wrong passwords, an account is locked for 15 minutes.
+
+## Security
+
+- Passwords are hashed with argon2; login tokens are random and only stored as hashes.
+- The login cookie can't be read by JavaScript (HttpOnly) and isn't sent by other websites (SameSite).
+- Requests from other websites or other apps on your computer are rejected (Origin check), and so are requests using an unexpected host name (DNS-rebinding protection).
+- A strict Content Security Policy only lets the page run its own scripts, and the app can't be embedded in another site.
+- Journal text is never cached by the browser.
+
+The app is meant to run only on your own computer. Before putting it on the internet, serve it over HTTPS and mark the login cookie `Secure` (see the `shortcut:` comment in `app.py`), add your domain to the allowed hosts, and move the login lockout out of memory if you run more than one worker.
 
 ## For developers
 
 - `app.py`: the FastAPI backend (login, sessions, entries API) and SQLite database setup.
-- `static/`: the pages (`index.html`, `login.html`) and shared `style.css`.
+- `static/`: the pages (`index.html`, `login.html`), their scripts (`journal.js`, `login.js`) and the shared `style.css`. Keep scripts and styles in these files: the Content Security Policy blocks inline `<script>` and `<style>`.
 - `test_app.py`: the tests. Run them with:
   ```
   pip install -r requirements-dev.txt
