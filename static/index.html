@@ -32,6 +32,15 @@
     <p class="error" id="error" role="alert"></p>
   </form>
 
+  <section class="panel calendar" aria-label="Calendar">
+    <div class="cal-head">
+      <button type="button" class="link cal-nav" id="calPrev" aria-label="Previous month">‹</button>
+      <span id="calTitle" aria-live="polite"></span>
+      <button type="button" class="link cal-nav" id="calNext" aria-label="Next month">›</button>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+  </section>
+
   <div class="search">
     <label for="q" class="sr">Search all entries</label>
     <input type="search" id="q" placeholder="Search all entries..." maxlength="200" autocomplete="off">

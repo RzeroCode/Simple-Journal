@@ -4,10 +4,8 @@ const viewer = $('viewer');
 let openCard = null, openEntryData = null;
 
 // Local date, not toISOString(), which is UTC and can give yesterday's date.
-const todayStr = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+const isoDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayStr = () => isoDate(new Date());
 const longDate = date => new Date(date + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 const shortDate = date => new Date(date + 'T00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 const shortTime = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -25,9 +23,62 @@ async function api(path, options = {}) {
 const showError = err => { $('error').textContent = err ? err.message || String(err) : ''; };
 
 async function deleteEntry(id) {
-  try { await api(`/api/entries/${id}`, { method: 'DELETE' }); showError(null); render(); }
+  try { await api(`/api/entries/${id}`, { method: 'DELETE' }); showError(null); render(); loadDates(); }
   catch (err) { showError(err); }
 }
+
+// ----- month calendar: a dot marks each day that has entries -----
+let entryCounts = {}, calMonth = new Date();
+// The locale's first day of the week (1 = Monday ... 7 = Sunday); Monday where the browser can't tell.
+const FIRST_DAY = (() => { const l = new Intl.Locale(navigator.language); return (l.getWeekInfo?.() ?? l.weekInfo)?.firstDay ?? 1; })() % 7;
+const WEEKDAYS = Array.from({ length: 7 }, (_, i) =>
+  new Date(2026, 0, 4 + FIRST_DAY + i).toLocaleDateString(undefined, { weekday: 'short' })); // Jan 4 2026 is a Sunday
+
+function drawCalendar() {
+  const y = calMonth.getFullYear(), m = calMonth.getMonth(), selected = $('date').value;
+  $('calTitle').textContent = calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const cells = WEEKDAYS.map(name => {
+    const s = document.createElement('span');
+    s.className = 'wd';
+    s.ariaHidden = 'true'; // each day button already says its full date
+    s.textContent = name;
+    return s;
+  });
+  const lead = (new Date(y, m, 1).getDay() - FIRST_DAY + 7) % 7;
+  for (let i = 0; i < lead; i++) cells.push(document.createElement('span'));
+  for (let d = 1, days = new Date(y, m + 1, 0).getDate(); d <= days; d++) {
+    const date = isoDate(new Date(y, m, d)), n = entryCounts[date] || 0;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = n ? 'day has' : 'day';
+    b.textContent = d;
+    b.ariaLabel = n ? `${longDate(date)}, ${n} ${n === 1 ? 'entry' : 'entries'}` : longDate(date);
+    b.ariaPressed = String(date === selected);
+    if (date === todayStr()) b.ariaCurrent = 'date';
+    b.onclick = () => selectDate(date);
+    cells.push(b);
+  }
+  const hadFocus = $('calGrid').contains(document.activeElement);
+  $('calGrid').replaceChildren(...cells);
+  if (hadFocus) $('calGrid').querySelector('[aria-pressed=true]')?.focus(); // keep keyboard users in place
+}
+
+async function loadDates() {
+  try { entryCounts = await api('/api/entry-dates'); drawCalendar(); }
+  catch (err) { showError(err); }
+}
+
+// Every way of picking a day goes through here, so the calendar, search box and cards stay in step.
+function selectDate(date) {
+  $('date').value = date;
+  $('q').value = '';
+  calMonth = new Date(date + 'T00:00');
+  drawCalendar();
+  render();
+}
+
+$('calPrev').onclick = () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1); drawCalendar(); };
+$('calNext').onclick = () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1); drawCalendar(); };
 
 // Animates the DOM change with the View Transitions API where supported; otherwise applies it instantly.
 function animate(update) {
@@ -189,15 +240,16 @@ $('form').onsubmit = async ev => {
     $('q').value = ''; // show the day the entry was added to
     showError(null);
     render();
+    loadDates();
   } catch (err) { showError(err); }
   finally { $('add').disabled = false; }
 };
 $('text').onkeydown = ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) $('form').requestSubmit(); };
-$('date').onchange = () => { if (!$('date').value) $('date').value = todayStr(); $('q').value = ''; render(); };
-$('today').onclick = () => { $('date').value = todayStr(); $('q').value = ''; render(); };
+$('date').onchange = () => selectDate($('date').value || todayStr());
+$('today').onclick = () => selectDate(todayStr());
 $('q').oninput = render;
 $('logout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.replace('/login'); };
 
 api('/api/me').then(me => { $('who').textContent = `Signed in as ${me.email}`; }).catch(() => {});
-$('date').value = todayStr();
-render();
+selectDate(todayStr());
+loadDates();

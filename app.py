@@ -261,6 +261,13 @@ def list_entries(date: Date, user_id: int = Depends(current_user), db=Depends(ge
     return [dict(r) for r in rows]
 
 
+@app.get("/api/entry-dates")
+def entry_dates(user_id: int = Depends(current_user), db=Depends(get_db)):
+    # One row per day written on, so this stays small even after years of entries.
+    rows = db.execute("SELECT date, count(*) AS n FROM entries WHERE user_id = ? GROUP BY date", (user_id,))
+    return {r["date"]: r["n"] for r in rows}
+
+
 @app.get("/api/search")
 def search_entries(q: str = Query(max_length=200), user_id: int = Depends(current_user), db=Depends(get_db)):
     q = q.strip()

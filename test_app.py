@@ -78,6 +78,23 @@ def test_edit_entry(client):
     assert new_client().patch(f"/api/entries/{e['id']}", json={"text": "x"}).status_code == 401
 
 
+def test_entry_dates(client):
+    client.post("/api/register", json={"email": "a@example.com", "password": PW})
+    assert client.get("/api/entry-dates").json() == {}
+    client.post("/api/entries", json={"date": "2026-11-23", "text": "one"})
+    second = client.post("/api/entries", json={"date": "2026-11-23", "text": "two"}).json()
+    client.post("/api/entries", json={"date": "2026-10-01", "text": "last month"})
+    assert client.get("/api/entry-dates").json() == {"2026-11-23": 2, "2026-10-01": 1}
+
+    client.delete(f"/api/entries/{second['id']}")
+    assert client.get("/api/entry-dates").json() == {"2026-11-23": 1, "2026-10-01": 1}
+
+    b = new_client()
+    b.post("/api/register", json={"email": "b@example.com", "password": PW})
+    assert b.get("/api/entry-dates").json() == {}
+    assert new_client().get("/api/entry-dates").status_code == 401
+
+
 def test_search(client):
     client.post("/api/register", json={"email": "a@example.com", "password": PW})
     client.post("/api/entries", json={"date": "2026-11-20", "text": "Morning ÇAY with Ali"})
