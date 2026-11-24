@@ -50,7 +50,12 @@
   .viewer-close { background: none; color: var(--muted); font-size: 1.6rem; line-height: 1; padding: 0 6px; }
   .viewer-close:hover { color: #fff; transform: none; }
   .viewer-text { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; scrollbar-color: rgba(255,255,255,.3) transparent; font-size: 1.05rem; line-height: 1.65; margin: 18px 0 20px; }
-  .viewer-actions { display: flex; justify-content: flex-end; }
+  .viewer-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  #vDelete, #vHint { margin-right: auto; }
+  .viewer-edit {
+    width: 100%; margin: 18px 0 0; font-size: 1.05rem; line-height: 1.65; resize: vertical;
+    field-sizing: content; min-height: 160px; max-height: 55vh;
+  }
   .danger { background: none; color: var(--error); border: 1px solid rgba(254,202,202,.4); }
   .danger:hover { background: rgba(254,202,202,.1); }
 
@@ -70,7 +75,7 @@
     <button type="button" class="link" id="logout">Log out</button>
   </div>
   <h1>Daily Journal</h1>
-  <p class="sub">Pick a day, write a thought. Click an entry to open it.</p>
+  <p class="sub">Pick a day, write a thought. Click an entry to open or edit it.</p>
 
   <form class="panel" id="form">
     <div class="row">
@@ -101,8 +106,15 @@
       <button type="button" class="viewer-close" id="vClose" aria-label="Close">×</button>
     </div>
     <p class="viewer-text" id="vText"></p>
+    <label for="vEdit" class="sr">Edit entry</label>
+    <textarea class="viewer-edit" id="vEdit" maxlength="10000" hidden></textarea>
+    <p class="error" id="vError" role="alert"></p>
     <div class="viewer-actions">
       <button type="button" class="danger" id="vDelete">Delete entry</button>
+      <span class="hint" id="vHint" hidden>Ctrl + Enter to save · Esc to cancel</span>
+      <button type="button" class="link" id="vCancel" hidden>Cancel</button>
+      <button type="button" id="vEditBtn">Edit</button>
+      <button type="button" id="vSave" hidden>Save</button>
     </div>
   </div>
 </dialog>
@@ -156,6 +168,7 @@
     $('vDate').textContent = longDate(entry.date);
     $('vTime').textContent = `Written at ${shortTime(entry.created_at)}`;
     $('vText').textContent = entry.text;
+    setEditing(false);
     card.style.viewTransitionName = 'entry';
     animate(() => {
       card.style.viewTransitionName = '';
@@ -179,10 +192,58 @@
     });
   }
 
-  viewer.addEventListener('cancel', ev => { ev.preventDefault(); closeViewer(); }); // Esc
+  // ----- editing inside the expanded view -----
+  let editing = false;
+  const hasUnsavedEdit = () => editing && $('vEdit').value.trim() !== openEntryData.text;
+  const okToDiscard = () => !hasUnsavedEdit() || confirm('Discard your changes?');
+
+  function setEditing(on) {
+    editing = on;
+    $('vText').hidden = on;
+    $('vEdit').hidden = !on;
+    $('vDelete').hidden = $('vEditBtn').hidden = on;
+    $('vSave').hidden = $('vCancel').hidden = $('vHint').hidden = !on;
+    $('vError').textContent = '';
+    if (on) {
+      $('vEdit').value = openEntryData.text;
+      $('vEdit').focus();
+    }
+  }
+
+  function cancelEdit() {
+    if (!okToDiscard()) return;
+    setEditing(false);
+    $('vEditBtn').focus();
+  }
+
+  async function saveEdit() {
+    const text = $('vEdit').value.trim();
+    if (!text) return $('vError').textContent = "An entry can't be empty.";
+    if (text === openEntryData.text) return cancelEdit();
+    $('vSave').disabled = true;
+    try {
+      const updated = await api(`/api/entries/${openEntryData.id}`, { method: 'PATCH', body: JSON.stringify({ text }) });
+      openEntryData.text = updated.text; // same object the card's click handler holds
+      $('vText').textContent = updated.text;
+      if (openCard && openCard.isConnected) openCard.querySelector('.preview').textContent = updated.text;
+      setEditing(false);
+      $('vEditBtn').focus();
+    } catch (err) {
+      $('vError').textContent = err.message;
+    } finally {
+      $('vSave').disabled = false;
+    }
+  }
+
+  $('vEditBtn').onclick = () => setEditing(true);
+  $('vSave').onclick = saveEdit;
+  $('vCancel').onclick = cancelEdit;
+  $('vEdit').onkeydown = ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) saveEdit(); };
+
+  viewer.addEventListener('cancel', ev => { ev.preventDefault(); editing ? cancelEdit() : closeViewer(); }); // Esc
   viewer.addEventListener('close', () => { viewer.style.viewTransitionName = ''; });  // closed by any route
-  viewer.onclick = ev => { if (ev.target === viewer) closeViewer(); };              // click on the backdrop
-  $('vClose').onclick = closeViewer;
+  viewer.onclick = ev => { if (ev.target === viewer && !editing) closeViewer(); };   // backdrop; ignored mid-edit so a stray click can't lose text
+  $('vClose').onclick = () => { if (okToDiscard()) closeViewer(); };
   $('vDelete').onclick = () => { viewer.close(); deleteEntry(openEntryData.id); };
 
   async function render() {

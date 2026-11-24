@@ -112,10 +112,13 @@ class Credentials(BaseModel):
     password: str = Field(min_length=8, max_length=256)
 
 
-class NewEntry(BaseModel):
+class EntryText(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
-    date: Date
     text: str = Field(min_length=1, max_length=10_000)
+
+
+class NewEntry(EntryText):
+    date: Date
 
 
 # ---------- pages ----------
@@ -196,6 +199,17 @@ def add_entry(entry: NewEntry, user_id: int = Depends(current_user), db=Depends(
         (user_id, entry.date.isoformat(), entry.text, created),
     )
     return {"id": cur.lastrowid, "date": entry.date.isoformat(), "text": entry.text, "created_at": created}
+
+
+@app.patch("/api/entries/{entry_id}")
+def edit_entry(entry_id: int, body: EntryText, user_id: int = Depends(current_user), db=Depends(get_db)):
+    row = db.execute(
+        "UPDATE entries SET text = ? WHERE id = ? AND user_id = ? RETURNING id, date, text, created_at",
+        (body.text, entry_id, user_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Entry not found")
+    return dict(row)
 
 
 @app.delete("/api/entries/{entry_id}", status_code=204)

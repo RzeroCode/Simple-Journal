@@ -60,6 +60,20 @@ def test_entries_by_date(client):
     assert len(client.get("/api/entries?date=2026-11-22").json()) == 1
 
 
+def test_edit_entry(client):
+    client.post("/api/register", json={"email": "a@example.com", "password": PW})
+    e = client.post("/api/entries", json={"date": "2026-11-23", "text": "first draft"}).json()
+
+    r = client.patch(f"/api/entries/{e['id']}", json={"text": "  second draft  "})
+    assert r.status_code == 200
+    assert r.json() == {**e, "text": "second draft"}  # date and created_at unchanged
+    assert client.get("/api/entries?date=2026-11-23").json()[0]["text"] == "second draft"
+
+    assert client.patch(f"/api/entries/{e['id']}", json={"text": "   "}).status_code == 422
+    assert client.patch("/api/entries/9999", json={"text": "x"}).status_code == 404
+    assert new_client().patch(f"/api/entries/{e['id']}", json={"text": "x"}).status_code == 401
+
+
 def test_users_cannot_see_or_delete_each_others_entries(client):
     client.post("/api/register", json={"email": "a@example.com", "password": PW})
     a_entry = client.post("/api/entries", json={"date": "2026-11-23", "text": "A's secret"}).json()
@@ -68,7 +82,8 @@ def test_users_cannot_see_or_delete_each_others_entries(client):
     b.post("/api/register", json={"email": "b@example.com", "password": PW})
     assert b.get("/api/entries?date=2026-11-23").json() == []
     assert b.delete(f"/api/entries/{a_entry['id']}").status_code == 404
-    assert len(client.get("/api/entries?date=2026-11-23").json()) == 1
+    assert b.patch(f"/api/entries/{a_entry['id']}", json={"text": "hacked"}).status_code == 404
+    assert client.get("/api/entries?date=2026-11-23").json()[0]["text"] == "A's secret"
 
 
 def test_passwords_and_tokens_not_stored_in_plain_text(client):
