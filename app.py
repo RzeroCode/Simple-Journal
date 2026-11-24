@@ -1,7 +1,9 @@
 """Daily Journal backend: FastAPI + SQLite, email/password login, per-user entries."""
 import hashlib
+import json
 import mimetypes
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -16,7 +18,7 @@ from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Res
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Windows' registry can map .js to text/plain; with nosniff the browser would then refuse to run it.
 mimetypes.add_type("text/javascript", ".js")
@@ -73,10 +75,15 @@ CREATE TABLE IF NOT EXISTS entries (
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   date       TEXT NOT NULL,
   text       TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  mood       TEXT,
+  tags       TEXT NOT NULL DEFAULT '[]'  -- JSON list of tags
 );
 CREATE INDEX IF NOT EXISTS entries_user_date ON entries(user_id, date);
 """
+# Columns added after the first release; databases made before then get them on startup.
+NEW_ENTRY_COLUMNS = {"mood": "TEXT", "tags": "TEXT NOT NULL DEFAULT '[]'"}
+ENTRY_COLS = "id, date, text, mood, tags, created_at"
 
 
 def now() -> str:
@@ -103,6 +110,10 @@ def connect() -> sqlite3.Connection:
 async def lifespan(_app):
     with connect() as conn:
         conn.executescript(SCHEMA)
+        have = {r["name"] for r in conn.execute("PRAGMA table_info(entries)")}
+        for name, kind in NEW_ENTRY_COLUMNS.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE entries ADD COLUMN {name} {kind}")  # names are constants above
     yield
 
 
@@ -179,13 +190,34 @@ class Credentials(BaseModel):
     password: str = Field(min_length=8, max_length=256)
 
 
-class EntryText(BaseModel):
+def clean_tag(tag: str) -> str:
+    return tag.strip().lstrip("#").casefold()
+
+
+class EntryFields(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     text: str = Field(min_length=1, max_length=10_000)
+    mood: Literal["great", "good", "okay", "low", "sad", "angry"] | None = None
+    tags: list[str] = Field(default=[], max_length=10)
+
+    @field_validator("tags")
+    @classmethod
+    def clean_tags(cls, tags: list[str]) -> list[str]:
+        out = []
+        for tag in map(clean_tag, tags):
+            if not re.fullmatch(r"[\w-]{1,30}", tag):  # \w includes non-English letters
+                raise ValueError("Tags can be up to 30 letters, numbers, - or _, with no spaces")
+            if tag not in out:
+                out.append(tag)
+        return out
 
 
-class NewEntry(EntryText):
+class NewEntry(EntryFields):
     date: Date
+
+
+def entry_out(row: sqlite3.Row) -> dict:
+    return {**dict(row), "tags": json.loads(row["tags"])}
 
 
 # ---------- pages ----------
@@ -256,10 +288,10 @@ def me(user_id: int = Depends(current_user), db=Depends(get_db)):
 @app.get("/api/entries")
 def list_entries(date: Date, user_id: int = Depends(current_user), db=Depends(get_db)):
     rows = db.execute(
-        "SELECT id, date, text, created_at FROM entries WHERE user_id = ? AND date = ? ORDER BY id",
+        f"SELECT {ENTRY_COLS} FROM entries WHERE user_id = ? AND date = ? ORDER BY id",
         (user_id, date.isoformat()),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [entry_out(r) for r in rows]
 
 
 @app.get("/api/entry-dates")
@@ -270,17 +302,27 @@ def entry_dates(user_id: int = Depends(current_user), db=Depends(get_db)):
 
 
 @app.get("/api/search")
-def search_entries(q: str = Query(max_length=200), user_id: int = Depends(current_user), db=Depends(get_db)):
-    q = q.strip()
-    if not q:
+def search_entries(
+    q: str = Query("", max_length=200),
+    tag: str = Query("", max_length=31),
+    user_id: int = Depends(current_user),
+    db=Depends(get_db),
+):
+    q, tag = q.strip(), clean_tag(tag)
+    if not q and not tag:
         raise HTTPException(422, "Search text can't be empty")
-    # instr, not LIKE: the search text is matched literally, so % and _ need no escaping.
+    where, args = ["user_id = ?"], [user_id]
+    if q:  # instr, not LIKE: the search text is matched literally, so % and _ need no escaping.
+        where.append("instr(casefold(text), ?) > 0")
+        args.append(q.casefold())
+    if tag:
+        where.append("EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)")
+        args.append(tag)
     rows = db.execute(
-        "SELECT id, date, text, created_at FROM entries WHERE user_id = ? AND instr(casefold(text), ?) > 0 "
-        "ORDER BY date DESC, id DESC LIMIT ?",
-        (user_id, q.casefold(), SEARCH_LIMIT),
+        f"SELECT {ENTRY_COLS} FROM entries WHERE {' AND '.join(where)} ORDER BY date DESC, id DESC LIMIT ?",
+        (*args, SEARCH_LIMIT),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [entry_out(r) for r in rows]
 
 
 @app.get("/api/export")
@@ -290,43 +332,53 @@ def export_entries(
     db=Depends(get_db),
 ):
     email = db.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()["email"]
-    rows = db.execute(
-        "SELECT date, text, created_at FROM entries WHERE user_id = ? ORDER BY date, id", (user_id,)
-    ).fetchall()
+    entries = [entry_out(r) for r in db.execute(
+        f"SELECT {ENTRY_COLS} FROM entries WHERE user_id = ? ORDER BY date, id", (user_id,)
+    )]
     stamp = now()
     headers = {"Content-Disposition": f'attachment; filename="journal-{stamp[:10]}.{fmt}"'}
     if fmt == "json":
-        return JSONResponse({"email": email, "exported_at": stamp, "entries": [dict(r) for r in rows]}, headers=headers)
+        for e in entries:
+            del e["id"]  # internal row number, meaningless outside this database
+        return JSONResponse({"email": email, "exported_at": stamp, "entries": entries}, headers=headers)
 
     lines, last_date = [f"# Daily Journal · {email}", "", f"Exported {stamp[:10]}"], None
-    for r in rows:
-        if r["date"] != last_date:
-            lines += ["", f"## {r['date']}"]
-            last_date = r["date"]
+    for e in entries:
+        if e["date"] != last_date:
+            lines += ["", f"## {e['date']}"]
+            last_date = e["date"]
         # The server doesn't know the writer's time zone, so say the time is UTC.
-        lines += ["", f"*{r['created_at'][11:16]} UTC*", "", r["text"]]
+        meta = [f"{e['created_at'][11:16]} UTC"]
+        if e["mood"]:
+            meta.append(f"mood: {e['mood']}")
+        if e["tags"]:
+            meta.append(" ".join("#" + t for t in e["tags"]))
+        lines += ["", f"*{' · '.join(meta)}*", "", e["text"]]
     return Response("\n".join(lines) + "\n", media_type="text/markdown; charset=utf-8", headers=headers)
 
 
 @app.post("/api/entries", status_code=201)
 def add_entry(entry: NewEntry, user_id: int = Depends(current_user), db=Depends(get_db)):
-    created = now()
-    cur = db.execute(
-        "INSERT INTO entries (user_id, date, text, created_at) VALUES (?, ?, ?, ?)",
-        (user_id, entry.date.isoformat(), entry.text, created),
-    )
-    return {"id": cur.lastrowid, "date": entry.date.isoformat(), "text": entry.text, "created_at": created}
+    row = db.execute(
+        f"INSERT INTO entries (user_id, date, text, mood, tags, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING {ENTRY_COLS}",
+        (user_id, entry.date.isoformat(), entry.text, entry.mood, json.dumps(entry.tags, ensure_ascii=False), now()),
+    ).fetchone()
+    return entry_out(row)
 
 
 @app.patch("/api/entries/{entry_id}")
-def edit_entry(entry_id: int, body: EntryText, user_id: int = Depends(current_user), db=Depends(get_db)):
+def edit_entry(entry_id: int, body: EntryFields, user_id: int = Depends(current_user), db=Depends(get_db)):
+    fields = body.model_dump(exclude_unset=True)  # text is required; mood and tags change only when sent
+    if "tags" in fields:
+        fields["tags"] = json.dumps(fields["tags"], ensure_ascii=False)
+    sets = ", ".join(f"{name} = ?" for name in fields)  # names come from the model, never from the request
     row = db.execute(
-        "UPDATE entries SET text = ? WHERE id = ? AND user_id = ? RETURNING id, date, text, created_at",
-        (body.text, entry_id, user_id),
+        f"UPDATE entries SET {sets} WHERE id = ? AND user_id = ? RETURNING {ENTRY_COLS}",
+        (*fields.values(), entry_id, user_id),
     ).fetchone()
     if row is None:
         raise HTTPException(404, "Entry not found")
-    return dict(row)
+    return entry_out(row)
 
 
 @app.delete("/api/entries/{entry_id}", status_code=204)

@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -76,6 +78,55 @@ def test_edit_entry(client):
     assert client.patch(f"/api/entries/{e['id']}", json={"text": "   "}).status_code == 422
     assert client.patch("/api/entries/9999", json={"text": "x"}).status_code == 404
     assert new_client().patch(f"/api/entries/{e['id']}", json={"text": "x"}).status_code == 401
+
+
+def test_mood_and_tags(client):
+    client.post("/api/register", json={"email": "a@example.com", "password": PW})
+    e = client.post("/api/entries", json={
+        "date": "2026-11-23", "text": "tea", "mood": "great", "tags": ["#Work", "aile", "work", " Çay "],
+    }).json()
+    assert (e["mood"], e["tags"]) == ("great", ["work", "aile", "çay"])  # cleaned, lower-cased, no duplicates
+    plain = client.post("/api/entries", json={"date": "2026-11-22", "text": "no extras"}).json()
+    assert (plain["mood"], plain["tags"]) == (None, [])
+
+    # An edit that only sends text keeps mood and tags; sending them replaces them.
+    assert client.patch(f"/api/entries/{e['id']}", json={"text": "tea!"}).json()["tags"] == ["work", "aile", "çay"]
+    r = client.patch(f"/api/entries/{e['id']}", json={"text": "tea!", "mood": None, "tags": ["home"]}).json()
+    assert (r["text"], r["mood"], r["tags"]) == ("tea!", None, ["home"])
+    assert client.get("/api/entries?date=2026-11-23").json()[0]["tags"] == ["home"]
+
+    client.post("/api/entries", json={"date": "2026-11-24", "text": "home again", "tags": ["home"]})
+    assert [x["text"] for x in client.get("/api/search?tag=%23Home").json()] == ["home again", "tea!"]
+    assert [x["text"] for x in client.get("/api/search", params={"tag": "home", "q": "again"}).json()] == ["home again"]
+    assert client.get("/api/search?tag=hom").json() == []  # whole tags only
+
+    for bad in ({"mood": "ecstatic"}, {"tags": ["two words"]}, {"tags": ["x" * 31]}, {"tags": [str(i) for i in range(11)]}):
+        assert client.post("/api/entries", json={"date": "2026-11-23", "text": "x", **bad}).status_code == 422
+
+    b = new_client()
+    b.post("/api/register", json={"email": "b@example.com", "password": PW})
+    assert b.get("/api/search?tag=home").json() == []
+
+
+def test_old_database_gets_new_columns_and_keeps_entries(tmp_path, monkeypatch):
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript("""
+        CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE entries (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, date TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL);
+    """)
+    old.execute("INSERT INTO users VALUES (1, 'a@example.com', ?, '2026-01-01')", (journal.ph.hash(PW),))
+    old.execute("INSERT INTO entries VALUES (1, 1, '2026-11-23', 'written before tags existed', '2026-11-23T10:00:00+00:00')")
+    old.commit()
+    old.close()
+
+    monkeypatch.setattr(journal, "DB_PATH", str(path))
+    monkeypatch.setattr(journal, "failed_logins", {})
+    with TestClient(journal.app, base_url=BASE) as c:
+        assert c.post("/api/login", json={"email": "a@example.com", "password": PW}).status_code == 200
+        [e] = c.get("/api/entries?date=2026-11-23").json()
+        assert (e["text"], e["mood"], e["tags"]) == ("written before tags existed", None, [])
+        assert c.patch("/api/entries/1", json={"text": "now tagged", "tags": ["new"]}).json()["tags"] == ["new"]
 
 
 def test_entry_dates(client):

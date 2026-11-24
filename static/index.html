@@ -29,6 +29,11 @@
     </div>
     <label for="text" class="sr">What's on your mind?</label>
     <textarea id="text" placeholder="Write something..." required maxlength="10000"></textarea>
+    <div class="meta">
+      <div class="moods" id="mood" role="group" aria-label="Mood (optional)"></div>
+      <label for="tags" class="sr">Tags (optional), separated by commas or spaces</label>
+      <input id="tags" placeholder="Tags: work, family" maxlength="400" autocomplete="off">
+    </div>
     <div class="actions">
       <span class="hint">Ctrl + Enter to save</span>
       <button type="submit" id="add">Add entry</button>
@@ -47,7 +52,7 @@
 
   <div class="search">
     <label for="q" class="sr">Search all entries</label>
-    <input type="search" id="q" placeholder="Search all entries..." maxlength="200" autocomplete="off">
+    <input type="search" id="q" placeholder="Search all entries, or #tag..." maxlength="200" autocomplete="off">
   </div>
 
   <h2 id="heading"></h2>
@@ -60,12 +65,18 @@
       <div>
         <h3 id="vDate"></h3>
         <p id="vTime"></p>
+        <p class="tags" id="vTags"></p>
       </div>
       <button type="button" class="viewer-close" id="vClose" aria-label="Close">×</button>
     </div>
     <p class="viewer-text" id="vText"></p>
     <label for="vEdit" class="sr">Edit entry</label>
     <textarea class="viewer-edit" id="vEdit" maxlength="10000" hidden></textarea>
+    <div class="meta" id="vMeta" hidden>
+      <div class="moods" id="vMood" role="group" aria-label="Mood"></div>
+      <label for="vTagsInput" class="sr">Tags, separated by commas or spaces</label>
+      <input id="vTagsInput" placeholder="Tags: work, family" maxlength="400" autocomplete="off">
+    </div>
     <p class="error" id="vError" role="alert"></p>
     <div class="viewer-actions">
       <button type="button" class="danger" id="vDelete">Delete entry</button>

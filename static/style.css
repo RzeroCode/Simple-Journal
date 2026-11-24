@@ -4,6 +4,7 @@
   --text: #f8fafc; --muted: #cbd5e1; --accent: #f472b6; --error: #fecaca;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* so display: flex rules can't un-hide elements */
 body {
   margin: 0; min-height: 100vh; color: var(--text);
   font-family: Inter, system-ui, sans-serif;
@@ -84,7 +85,25 @@ a.link { display: inline-block; font-weight: 500; }
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; line-clamp: 6;
   overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.card time { display: block; font-size: .75rem; color: var(--muted); margin-top: 12px; }
+.card .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
+.card time { font-size: .75rem; color: var(--muted); }
+.card-mood { font-size: 1rem; line-height: 1; }
+
+/* Mood picker and tags */
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.meta input { flex: 1; min-width: 180px; }
+.moods { display: flex; gap: 2px; }
+.mood { background: none; padding: 5px 7px; font-size: 1.25rem; line-height: 1; border-radius: 10px; filter: grayscale(1); opacity: .7; }
+.mood:hover { filter: none; opacity: 1; transform: none; }
+.mood[aria-pressed=true] { filter: none; opacity: 1; background: rgba(255,255,255,0.2); box-shadow: inset 0 0 0 1px var(--border); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tags:empty { display: none; }
+.tag {
+  font-size: .75rem; font-weight: 500; line-height: 1.4; padding: 2px 9px; border-radius: 999px;
+  background: rgba(255,255,255,0.14); color: var(--text);
+}
+button.tag:hover { background: rgba(255,255,255,0.26); transform: none; }
+.viewer-head p.tags { margin-top: 10px; }
 .card .del {
   position: absolute; top: 8px; right: 8px; background: none; color: var(--muted);
   padding: 2px 8px; font-size: 1.1rem; line-height: 1;

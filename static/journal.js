@@ -1,7 +1,9 @@
 const COLORS = ['#f472b6', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa', '#fb7185'];
+const MOODS = { great: '😄', good: '🙂', okay: '😐', low: '😕', sad: '😢', angry: '😠' }; // keys match the server's
+const moodName = key => key[0].toUpperCase() + key.slice(1);
 const $ = id => document.getElementById(id);
 const viewer = $('viewer');
-let openCard = null, openEntryData = null;
+let openCard = null, openEntryData = null, openColor = null, showDates = false;
 
 // Local date, not toISOString(), which is UTC and can give yesterday's date.
 const isoDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -15,7 +17,9 @@ async function api(path, options = {}) {
   if (res.status === 401) { location.replace('/login'); throw new Error('Not logged in'); }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(typeof body.detail === 'string' ? body.detail : 'Something went wrong. Please try again.');
+    // A string for the app's own errors; a list for invalid input (e.g. a bad tag).
+    const detail = typeof body.detail === 'string' ? body.detail : body.detail?.[0]?.msg?.replace(/^Value error, /, '');
+    throw new Error(detail || 'Something went wrong. Please try again.');
   }
   return res.status === 204 ? null : res.json();
 }
@@ -25,6 +29,43 @@ const showError = err => { $('error').textContent = err ? err.message || String(
 async function deleteEntry(id) {
   try { await api(`/api/entries/${id}`, { method: 'DELETE' }); showError(null); render(); loadDates(); }
   catch (err) { showError(err); }
+}
+
+// ----- mood and tags -----
+// Mirrors the server's clean-up closely enough to tell whether an edit changed anything.
+const parseTags = s => [...new Set(s.split(/[\s,]+/).map(t => t.replace(/^#+/, '').toLowerCase()).filter(Boolean))];
+
+// A row of toggle buttons; pressing the chosen mood again clears it.
+function moodPicker(group) {
+  let value = null;
+  const buttons = Object.entries(MOODS).map(([key, emoji]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'mood';
+    b.textContent = emoji;
+    b.title = b.ariaLabel = moodName(key);
+    b.onclick = () => set(value === key ? null : key);
+    return b;
+  });
+  const set = v => { value = v; Object.keys(MOODS).forEach((key, i) => { buttons[i].ariaPressed = String(key === v); }); };
+  group.replaceChildren(...buttons);
+  set(null);
+  return { get: () => value, set };
+}
+const newMood = moodPicker($('mood')), editMood = moodPicker($('vMood'));
+
+function tagChips(tags, clickable) {
+  return tags.map(tag => {
+    const el = document.createElement(clickable ? 'button' : 'span');
+    el.className = 'tag';
+    el.textContent = '#' + tag;
+    if (clickable) {
+      el.type = 'button';
+      el.ariaLabel = `Show entries tagged ${tag}`;
+      el.onclick = () => { $('q').value = '#' + tag; render(); };
+    }
+    return el;
+  });
 }
 
 // ----- month calendar: a dot marks each day that has entries -----
@@ -94,10 +135,9 @@ function openEntry(card, entry, color) {
   if (viewer.open) return;
   openCard = card;
   openEntryData = entry;
+  openColor = color;
   viewer.style.setProperty('--c', color);
-  $('vDate').textContent = longDate(entry.date);
-  $('vTime').textContent = `Written at ${shortTime(entry.created_at)}`;
-  $('vText').textContent = entry.text;
+  fillViewer();
   setEditing(false);
   card.style.viewTransitionName = 'entry';
   animate(() => {
@@ -106,6 +146,14 @@ function openEntry(card, entry, color) {
     viewer.showModal();
     $('vText').scrollTop = 0;
   });
+}
+
+function fillViewer() {
+  const e = openEntryData;
+  $('vDate').textContent = longDate(e.date);
+  $('vTime').textContent = `Written at ${shortTime(e.created_at)}` + (e.mood ? ` · ${MOODS[e.mood]} ${moodName(e.mood)}` : '');
+  $('vText').textContent = e.text;
+  $('vTags').replaceChildren(...tagChips(e.tags, false));
 }
 
 function closeViewer() {
@@ -124,18 +172,22 @@ function closeViewer() {
 
 // ----- editing inside the expanded view -----
 let editing = false;
-const hasUnsavedEdit = () => editing && $('vEdit').value.trim() !== openEntryData.text;
+const editedFields = () => ({ text: $('vEdit').value.trim(), mood: editMood.get(), tags: parseTags($('vTagsInput').value) });
+const unchanged = f => f.text === openEntryData.text && f.mood === openEntryData.mood && f.tags.join() === openEntryData.tags.join();
+const hasUnsavedEdit = () => editing && !unchanged(editedFields());
 const okToDiscard = () => !hasUnsavedEdit() || confirm('Discard your changes?');
 
 function setEditing(on) {
   editing = on;
-  $('vText').hidden = on;
-  $('vEdit').hidden = !on;
+  $('vText').hidden = $('vTags').hidden = on;
+  $('vEdit').hidden = $('vMeta').hidden = !on;
   $('vDelete').hidden = $('vEditBtn').hidden = on;
   $('vSave').hidden = $('vCancel').hidden = $('vHint').hidden = !on;
   $('vError').textContent = '';
   if (on) {
     $('vEdit').value = openEntryData.text;
+    editMood.set(openEntryData.mood);
+    $('vTagsInput').value = openEntryData.tags.join(', ');
     $('vEdit').focus();
   }
 }
@@ -147,15 +199,19 @@ function cancelEdit() {
 }
 
 async function saveEdit() {
-  const text = $('vEdit').value.trim();
-  if (!text) return $('vError').textContent = "An entry can't be empty.";
-  if (text === openEntryData.text) return cancelEdit();
+  const fields = editedFields();
+  if (!fields.text) return $('vError').textContent = "An entry can't be empty.";
+  if (unchanged(fields)) return cancelEdit();
   $('vSave').disabled = true;
   try {
-    const updated = await api(`/api/entries/${openEntryData.id}`, { method: 'PATCH', body: JSON.stringify({ text }) });
-    openEntryData.text = updated.text; // same object the card's click handler holds
-    $('vText').textContent = updated.text;
-    if (openCard && openCard.isConnected) openCard.querySelector('.preview').textContent = updated.text;
+    const updated = await api(`/api/entries/${openEntryData.id}`, { method: 'PATCH', body: JSON.stringify(fields) });
+    Object.assign(openEntryData, updated); // same object the card's click handler holds
+    fillViewer();
+    if (openCard && openCard.isConnected) {
+      const fresh = makeCard(openEntryData, openColor);
+      openCard.replaceWith(fresh);
+      openCard = fresh; // so closing the viewer morphs back into the updated card
+    }
     setEditing(false);
     $('vEditBtn').focus();
   } catch (err) {
@@ -169,6 +225,7 @@ $('vEditBtn').onclick = () => setEditing(true);
 $('vSave').onclick = saveEdit;
 $('vCancel').onclick = cancelEdit;
 $('vEdit').onkeydown = ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) saveEdit(); };
+$('vTagsInput').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); saveEdit(); } };
 
 viewer.addEventListener('cancel', ev => { ev.preventDefault(); editing ? cancelEdit() : closeViewer(); }); // Esc
 viewer.addEventListener('close', () => { viewer.style.viewTransitionName = ''; });  // closed by any route
@@ -176,57 +233,75 @@ viewer.onclick = ev => { if (ev.target === viewer && !editing) closeViewer(); };
 $('vClose').onclick = () => { if (okToDiscard()) closeViewer(); };
 $('vDelete').onclick = () => { viewer.close(); deleteEntry(openEntryData.id); };
 
-// Shows the search results while the search box has text, otherwise the selected day.
+function makeCard(e, color) {
+  const card = document.createElement('article');
+  card.className = 'card';
+  card.style.setProperty('--c', color);
+
+  const body = document.createElement('button'); // keyboard access; its click bubbles to the card
+  body.type = 'button';
+  body.className = 'body';
+  body.setAttribute('aria-haspopup', 'dialog');
+  const preview = document.createElement('span');
+  preview.className = 'preview';
+  preview.textContent = e.text; // textContent, never innerHTML: user text is not markup
+  body.append(preview);
+
+  const foot = document.createElement('div');
+  foot.className = 'foot';
+  const time = document.createElement('time');
+  time.dateTime = e.created_at;
+  time.textContent = showDates ? `${shortDate(e.date)} · ${shortTime(e.created_at)}` : shortTime(e.created_at);
+  foot.append(time);
+  if (e.mood) {
+    const mood = document.createElement('span');
+    mood.className = 'card-mood';
+    mood.role = 'img';
+    mood.title = mood.ariaLabel = `Mood: ${moodName(e.mood)}`;
+    mood.textContent = MOODS[e.mood];
+    foot.append(mood);
+  }
+  foot.append(...tagChips(e.tags, true));
+
+  const del = document.createElement('button');
+  del.className = 'del';
+  del.textContent = '×';
+  del.setAttribute('aria-label', 'Delete entry');
+  del.onclick = () => deleteEntry(e.id);
+
+  card.onclick = ev => {
+    if (ev.target.closest('.del, .tag') || getSelection().toString()) return;
+    openEntry(card, e, color);
+  };
+  card.append(body, foot, del);
+  return card;
+}
+
+// Shows search results while the search box has text ("#word" lists that tag), otherwise the selected day.
 async function render() {
   const date = $('date').value, q = $('q').value.trim();
-  $('heading').textContent = q ? `Results for “${q}”` : date === todayStr() ? `Today · ${longDate(date)}` : longDate(date);
+  const tag = /^#[^\s#]+$/.test(q) ? q.slice(1) : null;
+  $('heading').textContent = tag ? `Tagged #${tag}` : q ? `Results for “${q}”` : date === todayStr() ? `Today · ${longDate(date)}` : longDate(date);
 
   let list;
-  try { list = await api(q ? `/api/search?q=${encodeURIComponent(q)}` : `/api/entries?date=${encodeURIComponent(date)}`); }
+  const url = tag ? `/api/search?tag=${encodeURIComponent(tag)}`
+    : q ? `/api/search?q=${encodeURIComponent(q)}`
+    : `/api/entries?date=${encodeURIComponent(date)}`;
+  try { list = await api(url); }
   catch (err) { return showError(err); }
   if ($('date').value !== date || $('q').value.trim() !== q) return; // user changed the view while this was loading
 
+  showDates = Boolean(q);
   const cards = $('cards');
   cards.replaceChildren();
   if (!list.length) {
     const p = document.createElement('p');
     p.className = 'empty';
-    p.textContent = q ? 'No entries match your search.' : 'No entries for this day yet.';
+    p.textContent = tag ? 'No entries with this tag.' : q ? 'No entries match your search.' : 'No entries for this day yet.';
     cards.append(p);
     return;
   }
-  list.forEach((e, i) => {
-    const color = COLORS[i % COLORS.length];
-    const card = document.createElement('article');
-    card.className = 'card';
-    card.style.setProperty('--c', color);
-
-    const body = document.createElement('button'); // keyboard access; its click bubbles to the card
-    body.type = 'button';
-    body.className = 'body';
-    body.setAttribute('aria-haspopup', 'dialog');
-    const preview = document.createElement('span');
-    preview.className = 'preview';
-    preview.textContent = e.text; // textContent, never innerHTML: user text is not markup
-    body.append(preview);
-
-    const time = document.createElement('time');
-    time.dateTime = e.created_at;
-    time.textContent = q ? `${shortDate(e.date)} · ${shortTime(e.created_at)}` : shortTime(e.created_at);
-
-    const del = document.createElement('button');
-    del.className = 'del';
-    del.textContent = '×';
-    del.setAttribute('aria-label', 'Delete entry');
-    del.onclick = () => deleteEntry(e.id);
-
-    card.onclick = ev => {
-      if (ev.target.closest('.del') || getSelection().toString()) return;
-      openEntry(card, e, color);
-    };
-    card.append(body, time, del);
-    cards.append(card);
-  });
+  cards.append(...list.map((e, i) => makeCard(e, COLORS[i % COLORS.length])));
 }
 
 $('form').onsubmit = async ev => {
@@ -235,8 +310,11 @@ $('form').onsubmit = async ev => {
   if (!text) return;
   $('add').disabled = true;
   try {
-    await api('/api/entries', { method: 'POST', body: JSON.stringify({ date: $('date').value, text }) });
-    $('text').value = '';
+    await api('/api/entries', { method: 'POST', body: JSON.stringify({
+      date: $('date').value, text, mood: newMood.get(), tags: parseTags($('tags').value),
+    }) });
+    $('text').value = $('tags').value = '';
+    newMood.set(null);
     $('q').value = ''; // show the day the entry was added to
     showError(null);
     render();

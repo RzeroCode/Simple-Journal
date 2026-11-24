@@ -29,11 +29,12 @@ To stop it, press `Ctrl + C` in the terminal. Next time, you only need to activa
 - **Pick a date.** The date starts on today. Choose any other day with the date picker, or click **Today** to jump back.
 - **Use the calendar.** The month calendar below the writing box puts a dot under every day you wrote on. Click a day to see its entries, and use **‹** and **›** to move between months.
 - **Write an entry.** Type in the box and click **Add entry** (or press `Ctrl + Enter`).
+- **Add a mood and tags (optional).** Under the writing box, pick an emoji for how you feel (click it again to clear it), and type tags such as `work, family`. Tags can use letters, numbers, `-` and `_`.
 - **See your entries.** Every entry for the selected date shows as a card with the time you wrote it. Long entries show a short preview.
 - **Open an entry.** Click a card (or select it with `Tab` and press `Enter`) to expand it into a larger view with the full text. Close it with **×**, `Esc`, or by clicking outside it.
-- **Edit an entry.** Open it and click **Edit**. Change the text, then click **Save** (or press `Ctrl + Enter`). Click **Cancel** or press `Esc` to stop editing; you'll be asked before unsaved changes are thrown away.
+- **Edit an entry.** Open it and click **Edit**. Change the text, mood or tags, then click **Save** (or press `Ctrl + Enter`). Click **Cancel** or press `Esc` to stop editing; you'll be asked before unsaved changes are thrown away.
 - **Delete an entry.** Click the **×** in the corner of a card, or **Delete entry** in the expanded view.
-- **Search.** Type in the search box to find entries from any day that contain that text (upper and lower case don't matter). Results show newest first, with their dates. Clear the box, pick a date, or click **Today** to go back to the day view.
+- **Search.** Type in the search box to find entries from any day that contain that text (upper and lower case don't matter). Results show newest first, with their dates. To see every entry with a tag, click the tag on a card or type it with a `#` (for example `#work`). Clear the box, pick a date, or click **Today** to go back to the day view.
 - **Log out.** Click **Log out** in the top right.
 
 ## Your data
