@@ -95,6 +95,37 @@ def test_entry_dates(client):
     assert new_client().get("/api/entry-dates").status_code == 401
 
 
+def test_export(client):
+    client.post("/api/register", json={"email": "a@example.com", "password": PW})
+    client.post("/api/entries", json={"date": "2026-11-23", "text": "Çay\non the balcony"})
+    client.post("/api/entries", json={"date": "2026-11-20", "text": "older"})
+    client.post("/api/entries", json={"date": "2026-11-23", "text": "later the same day"})
+
+    r = client.get("/api/export")  # JSON by default
+    assert r.headers["content-disposition"].startswith('attachment; filename="journal-')
+    assert r.headers["cache-control"] == "no-store"
+    body = r.json()
+    assert body["email"] == "a@example.com"
+    assert [(e["date"], e["text"]) for e in body["entries"]] == [
+        ("2026-11-20", "older"), ("2026-11-23", "Çay\non the balcony"), ("2026-11-23", "later the same day"),
+    ]
+
+    r = client.get("/api/export?format=md")
+    assert r.headers["content-type"].startswith("text/markdown")
+    assert r.headers["content-disposition"].endswith('.md"')
+    md = r.text
+    assert md.startswith("# Daily Journal · a@example.com")
+    assert md.count("## 2026-11-23") == 1  # entries grouped under one heading per day
+    assert md.index("## 2026-11-20") < md.index("## 2026-11-23") < md.index("later the same day")
+    assert "Çay\non the balcony" in md and " UTC*" in md
+
+    assert client.get("/api/export?format=pdf").status_code == 422
+    b = new_client()
+    b.post("/api/register", json={"email": "b@example.com", "password": PW})
+    assert b.get("/api/export").json()["entries"] == []
+    assert new_client().get("/api/export").status_code == 401
+
+
 def test_search(client):
     client.post("/api/register", json={"email": "a@example.com", "password": PW})
     client.post("/api/entries", json={"date": "2026-11-20", "text": "Morning ÇAY with Ali"})

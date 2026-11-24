@@ -12,7 +12,11 @@
 <main>
   <div class="top">
     <span id="who"></span>
-    <button type="button" class="link" id="logout">Log out</button>
+    <div class="top-actions">
+      <a class="link" href="/api/export?format=md" download aria-label="Download all entries as Markdown">Export .md</a>
+      <a class="link" href="/api/export?format=json" download aria-label="Download all entries as JSON">Export .json</a>
+      <button type="button" class="link" id="logout">Log out</button>
+    </div>
   </div>
   <h1>Daily Journal</h1>
   <p class="sub">Pick a day, write a thought. Click an entry to open or edit it.</p>

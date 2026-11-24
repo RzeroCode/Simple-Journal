@@ -50,6 +50,8 @@ button:disabled { opacity: .6; cursor: wait; }
 
 /* ---------- journal page ---------- */
 .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; color: var(--muted); font-size: .9rem; }
+.top-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+a.link { display: inline-block; font-weight: 500; }
 .calendar { margin-top: 16px; padding: 14px 16px 16px; }
 .cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 #calTitle { font-family: Fraunces, Georgia, serif; font-size: 1.1rem; }

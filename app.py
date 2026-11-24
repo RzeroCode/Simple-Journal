@@ -8,6 +8,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import date as Date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -280,6 +281,31 @@ def search_entries(q: str = Query(max_length=200), user_id: int = Depends(curren
         (user_id, q.casefold(), SEARCH_LIMIT),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+@app.get("/api/export")
+def export_entries(
+    fmt: Literal["json", "md"] = Query("json", alias="format"),
+    user_id: int = Depends(current_user),
+    db=Depends(get_db),
+):
+    email = db.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()["email"]
+    rows = db.execute(
+        "SELECT date, text, created_at FROM entries WHERE user_id = ? ORDER BY date, id", (user_id,)
+    ).fetchall()
+    stamp = now()
+    headers = {"Content-Disposition": f'attachment; filename="journal-{stamp[:10]}.{fmt}"'}
+    if fmt == "json":
+        return JSONResponse({"email": email, "exported_at": stamp, "entries": [dict(r) for r in rows]}, headers=headers)
+
+    lines, last_date = [f"# Daily Journal · {email}", "", f"Exported {stamp[:10]}"], None
+    for r in rows:
+        if r["date"] != last_date:
+            lines += ["", f"## {r['date']}"]
+            last_date = r["date"]
+        # The server doesn't know the writer's time zone, so say the time is UTC.
+        lines += ["", f"*{r['created_at'][11:16]} UTC*", "", r["text"]]
+    return Response("\n".join(lines) + "\n", media_type="text/markdown; charset=utf-8", headers=headers)
 
 
 @app.post("/api/entries", status_code=201)

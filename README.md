@@ -39,6 +39,7 @@ To stop it, press `Ctrl + C` in the terminal. Next time, you only need to activa
 ## Your data
 
 - Entries are saved in a file called `journal.db` in this folder. Keep it to keep your entries, and back it up if they matter to you.
+- To keep your own copy, click **Export .md** (easy to read, grouped by day) or **Export .json** (every detail, for other programs) at the top of the page. Times in the Markdown file are in UTC.
 - Each account sees only its own entries.
 - Passwords are never stored. Only a secure scrambled version (an argon2 hash) is kept.
 - You stay logged in for 30 days unless you log out.
