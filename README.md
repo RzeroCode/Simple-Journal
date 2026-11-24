@@ -29,6 +29,7 @@ To stop it, press `Ctrl + C` in the terminal. Next time, you only need to activa
 - **Pick a date.** The date starts on today. Choose any other day with the date picker, or click **Today** to jump back.
 - **Use the calendar.** The month calendar below the writing box puts a dot under every day you wrote on. Click a day to see its entries, and use **‹** and **›** to move between months.
 - **Write an entry.** Type in the box and click **Add entry** (or press `Ctrl + Enter`).
+- **Format your writing (optional).** Entries understand simple Markdown: `**bold**`, `*italic*`, `~~crossed out~~`, `` `code` ``, `[a link](https://example.com)`, lines starting with `#` for headings, `-` or `1.` for lists and `>` for quotes, and ```` ``` ```` lines around a block of code. The expanded view shows the full formatting; cards show a simpler preview.
 - **Add a mood and tags (optional).** Under the writing box, pick an emoji for how you feel (click it again to clear it), and type tags such as `work, family`. Tags can use letters, numbers, `-` and `_`.
 - **See your entries.** Every entry for the selected date shows as a card with the time you wrote it. Long entries show a short preview.
 - **Open an entry.** Click a card (or select it with `Tab` and press `Enter`) to expand it into a larger view with the full text. Close it with **×**, `Esc`, or by clicking outside it.
@@ -61,7 +62,8 @@ The app is meant to run only on your own computer. Before putting it on the inte
 
 - `app.py`: the FastAPI backend (login, sessions, entries API) and SQLite database setup.
 - `static/`: the pages (`index.html`, `login.html`), their scripts (`journal.js`, `login.js`) and the shared `style.css`. Keep scripts and styles in these files: the Content Security Policy blocks inline `<script>` and `<style>`.
-- `test_app.py`: the tests. Run them with:
+- `static/markdown.js`: the Markdown renderer. It builds page elements directly and never uses `innerHTML`, so entry text can't inject markup; links are only made for `http(s)` and `mailto` addresses.
+- `test_app.py`: the tests (they also run `test_markdown.cjs`, the renderer's tests, when Node.js is installed). Run them with:
   ```
   pip install -r requirements-dev.txt
   python -m pytest

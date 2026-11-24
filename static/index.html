@@ -37,7 +37,7 @@
       <input id="tags" placeholder="Tags: work, family" maxlength="400" autocomplete="off">
     </div>
     <div class="actions">
-      <span class="hint">Ctrl + Enter to save</span>
+      <span class="hint">Ctrl + Enter to save · Formatting: **bold**, *italic*, - lists, # headings</span>
       <button type="submit" id="add">Add entry</button>
     </div>
     <p class="error" id="error" role="alert"></p>
@@ -71,7 +71,7 @@
       </div>
       <button type="button" class="viewer-close" id="vClose" aria-label="Close">×</button>
     </div>
-    <p class="viewer-text" id="vText"></p>
+    <div class="viewer-text" id="vText"></div>
     <label for="vEdit" class="sr">Edit entry</label>
     <textarea class="viewer-edit" id="vEdit" maxlength="10000" hidden></textarea>
     <div class="meta" id="vMeta" hidden>
@@ -90,6 +90,7 @@
   </div>
 </dialog>
 
+<script src="/static/markdown.js"></script>
 <script src="/static/journal.js"></script>
 </body>
 </html>

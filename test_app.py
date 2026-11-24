@@ -1,4 +1,7 @@
+import shutil
 import sqlite3
+import subprocess
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -244,6 +247,12 @@ def test_cross_origin_writes_blocked(client):
 
 def test_unknown_host_rejected(client):
     assert client.get("/login", headers={"Host": "evil.example"}).status_code == 400
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js to test the Markdown renderer")
+def test_markdown_renderer():
+    r = subprocess.run(["node", "--test", "test_markdown.cjs"], cwd=Path(__file__).parent, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
 
 
 def test_passwords_and_tokens_not_stored_in_plain_text(client):

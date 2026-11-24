@@ -145,6 +145,23 @@ body:has(#viewer[open]) { overflow: hidden; }
 .viewer-close { background: none; color: var(--muted); font-size: 1.6rem; line-height: 1; padding: 0 6px; }
 .viewer-close:hover { color: var(--text); transform: none; }
 .viewer-text { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; scrollbar-color: rgba(255,255,255,.3) transparent; font-size: 1.05rem; line-height: 1.65; margin: 18px 0 20px; }
+/* Markdown inside entries */
+.viewer-text > :first-child { margin-top: 0; }
+.viewer-text > :last-child { margin-bottom: 0; }
+.viewer-text :is(p, ul, ol, blockquote, pre) { margin: 0 0 .8em; }
+.viewer-text :is(h4, h5, h6) { font-family: Fraunces, Georgia, serif; margin: 1em 0 .35em; line-height: 1.3; }
+.viewer-text h4 { font-size: 1.3rem; }
+.viewer-text h5 { font-size: 1.15rem; }
+.viewer-text h6 { font-size: 1.05rem; }
+.viewer-text :is(ul, ol) { padding-left: 1.4em; }
+.viewer-text blockquote { margin-left: 0; padding-left: 14px; border-left: 3px solid var(--c); color: var(--muted); }
+.viewer-text a { color: var(--accent); }
+.viewer-text pre { white-space: pre; overflow-x: auto; padding: 12px 14px; border-radius: 10px; background: var(--input); }
+.viewer-text pre code { padding: 0; background: none; }
+:is(.viewer-text, .preview) code {
+  font-family: ui-monospace, Consolas, monospace; font-size: .9em;
+  padding: .1em .35em; border-radius: 6px; background: var(--input);
+}
 .viewer-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 #vDelete, #vHint { margin-right: auto; }
 .viewer-edit {

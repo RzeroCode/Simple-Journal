@@ -152,7 +152,7 @@ function fillViewer() {
   const e = openEntryData;
   $('vDate').textContent = longDate(e.date);
   $('vTime').textContent = `Written at ${shortTime(e.created_at)}` + (e.mood ? ` · ${MOODS[e.mood]} ${moodName(e.mood)}` : '');
-  $('vText').textContent = e.text;
+  $('vText').replaceChildren(Markdown.renderMarkdown(e.text));
   $('vTags').replaceChildren(...tagChips(e.tags, false));
 }
 
@@ -244,7 +244,7 @@ function makeCard(e, color) {
   body.setAttribute('aria-haspopup', 'dialog');
   const preview = document.createElement('span');
   preview.className = 'preview';
-  preview.textContent = e.text; // textContent, never innerHTML: user text is not markup
+  preview.append(...Markdown.renderPreview(e.text)); // built from nodes, never innerHTML: user text is not markup
   body.append(preview);
 
   const foot = document.createElement('div');
