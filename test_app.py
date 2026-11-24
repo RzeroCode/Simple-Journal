@@ -78,6 +78,24 @@ def test_edit_entry(client):
     assert new_client().patch(f"/api/entries/{e['id']}", json={"text": "x"}).status_code == 401
 
 
+def test_search(client):
+    client.post("/api/register", json={"email": "a@example.com", "password": PW})
+    client.post("/api/entries", json={"date": "2026-11-20", "text": "Morning ÇAY with Ali"})
+    client.post("/api/entries", json={"date": "2026-11-23", "text": "Evening çay, 100% relaxed"})
+    client.post("/api/entries", json={"date": "2026-11-22", "text": "Went running"})
+
+    found = client.get("/api/search", params={"q": "  çay "}).json()
+    assert [e["date"] for e in found] == ["2026-11-23", "2026-11-20"]  # non-ASCII case-folded, newest first
+    assert [e["text"] for e in client.get("/api/search", params={"q": "0%"}).json()] == ["Evening çay, 100% relaxed"]
+    assert client.get("/api/search", params={"q": "_"}).json() == []  # literal, not a LIKE wildcard
+    assert client.get("/api/search", params={"q": "   "}).status_code == 422
+
+    b = new_client()
+    b.post("/api/register", json={"email": "b@example.com", "password": PW})
+    assert b.get("/api/search", params={"q": "çay"}).json() == []
+    assert new_client().get("/api/search", params={"q": "çay"}).status_code == 401
+
+
 def test_users_cannot_see_or_delete_each_others_entries(client):
     client.post("/api/register", json={"email": "a@example.com", "password": PW})
     a_entry = client.post("/api/entries", json={"date": "2026-11-23", "text": "A's secret"}).json()

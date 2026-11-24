@@ -9,6 +9,7 @@ const todayStr = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const longDate = date => new Date(date + 'T00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+const shortDate = date => new Date(date + 'T00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 const shortTime = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 async function api(path, options = {}) {
@@ -124,21 +125,22 @@ viewer.onclick = ev => { if (ev.target === viewer && !editing) closeViewer(); };
 $('vClose').onclick = () => { if (okToDiscard()) closeViewer(); };
 $('vDelete').onclick = () => { viewer.close(); deleteEntry(openEntryData.id); };
 
+// Shows the search results while the search box has text, otherwise the selected day.
 async function render() {
-  const date = $('date').value;
-  $('heading').textContent = date === todayStr() ? `Today · ${longDate(date)}` : longDate(date);
+  const date = $('date').value, q = $('q').value.trim();
+  $('heading').textContent = q ? `Results for “${q}”` : date === todayStr() ? `Today · ${longDate(date)}` : longDate(date);
 
   let list;
-  try { list = await api(`/api/entries?date=${encodeURIComponent(date)}`); }
+  try { list = await api(q ? `/api/search?q=${encodeURIComponent(q)}` : `/api/entries?date=${encodeURIComponent(date)}`); }
   catch (err) { return showError(err); }
-  if ($('date').value !== date) return; // user switched date while this was loading
+  if ($('date').value !== date || $('q').value.trim() !== q) return; // user changed the view while this was loading
 
   const cards = $('cards');
   cards.replaceChildren();
   if (!list.length) {
     const p = document.createElement('p');
     p.className = 'empty';
-    p.textContent = 'No entries for this day yet.';
+    p.textContent = q ? 'No entries match your search.' : 'No entries for this day yet.';
     cards.append(p);
     return;
   }
@@ -159,7 +161,7 @@ async function render() {
 
     const time = document.createElement('time');
     time.dateTime = e.created_at;
-    time.textContent = shortTime(e.created_at);
+    time.textContent = q ? `${shortDate(e.date)} · ${shortTime(e.created_at)}` : shortTime(e.created_at);
 
     const del = document.createElement('button');
     del.className = 'del';
@@ -184,14 +186,16 @@ $('form').onsubmit = async ev => {
   try {
     await api('/api/entries', { method: 'POST', body: JSON.stringify({ date: $('date').value, text }) });
     $('text').value = '';
+    $('q').value = ''; // show the day the entry was added to
     showError(null);
     render();
   } catch (err) { showError(err); }
   finally { $('add').disabled = false; }
 };
 $('text').onkeydown = ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) $('form').requestSubmit(); };
-$('date').onchange = () => { if (!$('date').value) $('date').value = todayStr(); render(); };
-$('today').onclick = () => { $('date').value = todayStr(); render(); };
+$('date').onchange = () => { if (!$('date').value) $('date').value = todayStr(); $('q').value = ''; render(); };
+$('today').onclick = () => { $('date').value = todayStr(); $('q').value = ''; render(); };
+$('q').oninput = render;
 $('logout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.replace('/login'); };
 
 api('/api/me').then(me => { $('who').textContent = `Signed in as ${me.email}`; }).catch(() => {});

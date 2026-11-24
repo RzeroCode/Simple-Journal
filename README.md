@@ -32,6 +32,7 @@ To stop it, press `Ctrl + C` in the terminal. Next time, you only need to activa
 - **Open an entry.** Click a card (or select it with `Tab` and press `Enter`) to expand it into a larger view with the full text. Close it with **×**, `Esc`, or by clicking outside it.
 - **Edit an entry.** Open it and click **Edit**. Change the text, then click **Save** (or press `Ctrl + Enter`). Click **Cancel** or press `Esc` to stop editing; you'll be asked before unsaved changes are thrown away.
 - **Delete an entry.** Click the **×** in the corner of a card, or **Delete entry** in the expanded view.
+- **Search.** Type in the search box to find entries from any day that contain that text (upper and lower case don't matter). Results show newest first, with their dates. Clear the box, pick a date, or click **Today** to go back to the day view.
 - **Log out.** Click **Log out** in the top right.
 
 ## Your data

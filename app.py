@@ -11,7 +11,7 @@ from pathlib import Path
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +25,7 @@ HERE = Path(__file__).parent
 STATIC = HERE / "static"
 DB_PATH = os.environ.get("JOURNAL_DB", str(HERE / "journal.db"))
 SESSION_DAYS = 30
+SEARCH_LIMIT = 100
 ph = PasswordHasher()
 # Checked for unknown emails too, so response time doesn't reveal which accounts exist.
 DUMMY_HASH = ph.hash(secrets.token_urlsafe(16))
@@ -92,6 +93,8 @@ def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # SQLite's own lower()/LIKE only fold ASCII, so "Çay" wouldn't match "çay".
+    conn.create_function("casefold", 1, str.casefold, deterministic=True)
     return conn
 
 
@@ -254,6 +257,20 @@ def list_entries(date: Date, user_id: int = Depends(current_user), db=Depends(ge
     rows = db.execute(
         "SELECT id, date, text, created_at FROM entries WHERE user_id = ? AND date = ? ORDER BY id",
         (user_id, date.isoformat()),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/search")
+def search_entries(q: str = Query(max_length=200), user_id: int = Depends(current_user), db=Depends(get_db)):
+    q = q.strip()
+    if not q:
+        raise HTTPException(422, "Search text can't be empty")
+    # instr, not LIKE: the search text is matched literally, so % and _ need no escaping.
+    rows = db.execute(
+        "SELECT id, date, text, created_at FROM entries WHERE user_id = ? AND instr(casefold(text), ?) > 0 "
+        "ORDER BY date DESC, id DESC LIMIT ?",
+        (user_id, q.casefold(), SEARCH_LIMIT),
     ).fetchall()
     return [dict(r) for r in rows]
 
